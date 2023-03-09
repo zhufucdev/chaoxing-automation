@@ -28,6 +28,8 @@ async function startInjection() {
   const ignored = [];
 
   while (true) {
+    console.log('Chaoxing Automation: next course');
+    console.log(ignored);
     await waitForPageLoad();
 
     const next = getNextCourseNode(ignored);
@@ -37,40 +39,43 @@ async function startInjection() {
     }
 
     next.click();
-    await waitForPageLoad();
 
-    const courseMain = document.querySelector('.course_main');
-    await handlePage(courseMain, next, ignored);
+    while (true) {
+      await waitForPageLoad();
+      function ignoreCurrent() {
+        if (!ignored.includes(next.textContent)) {
+          ignored.push(next.textContent);
+        }
+      }
+      await handlePage(document.querySelector('.course_main'), ignoreCurrent);
 
-    const nextTab = getNextTab();
-    if (nextTab) nextTab.click();
-
-    await handlePage(courseMain, next, ignored);
+      const nextTab = getNextTab();
+      if (nextTab) {
+        nextTab.click();
+      } else {
+        break;
+      }
+    }
   }
 }
 
-async function handlePage(courseMain, node, ignored) {
-  console.log(courseMain);
+async function handlePage(courseMain, ignore) {
   if (!courseMain.querySelector('.ans-attach-ct')) {
     const frame = courseMain.querySelector('iframe');
     if (!frame) {
       notify('什么？空页面？', 'error');
     } else {
-      handlePage(frame.contentDocument, node, ignored);
+      await handlePage(frame.contentDocument, ignore);
     }
   } else {
     let containsUnknown = false;
     const retry = [];
-
     for (const item of courseMain.querySelectorAll('iframe')) {
       const result = await handleItem(item);
       
       switch (result) {
         case 'unknown':
-          if (!containsUnknown) {
-            ignored.push(node);
-            containsUnknown = true;
-          }
+          containsUnknown = true;
           break;
         case 'retry':
           retry.push(item);
@@ -89,12 +94,13 @@ async function handlePage(courseMain, node, ignored) {
       }
       if (notWorking) {
         notify('又出问题，不干了');
-        if (!ignored.includes(node)) ignored.push(node);
+        ignore();
       }
     }
 
     if (containsUnknown) {
       notify('有些东西不知道是啥，跳过', 'warn');
+      ignore();
     }
   }
 }
@@ -109,8 +115,8 @@ async function handleItem(item) {
   if (isCheckpointDone(item)) {
     return 'done';
   }
-  const container = item.contentDocument
-  if (container.querySelector('.ans-insertvideo-online')) {
+  if (item.classList.contains('ans-insertvideo-online')) {
+    console.log('Chaoxing Automation: handle video')
     await handleVid(item);
   } else {
     return 'unknown';
@@ -131,7 +137,7 @@ function getNextCourseNode(ignored) {
           && node.children[0].childElementCount > 0 && node.children[0].children[0].tagName === 'SPAN'
           && node.children[0].children[0].classList.contains('posCatalog_name')) {
         const target = node.children[0].children[0];
-        if (!ignored.includes(target)) {
+        if (!ignored.includes(target.textContent)) {
           const completed = node.querySelector('.icon_Completed');
           if (!completed) return target;
         }
@@ -223,19 +229,22 @@ function notify(text, level) {
 }
 
 /**
- * @param {HTMLIFrameElement} container the container to judege
+ * @param {HTMLIFrameElement|HTMLDivElement} container the container to judege
  * @returns {Boolean}
  */
 function isCheckpointDone(container) {
-  return Boolean(container.contentDocument.querySelector('.ans-job-finished'));
+  if (container.tagName === 'DIV' && container.classList.contains('ans-attach-ct'))
+    return Boolean(container.classList.contains('ans-job-finished'));
+  
+  return Boolean(isCheckpointDone(container.parentElement));
 }
 
 /**
  * @param {HTMLIFrameElement} container the video frame to handle
  */
 async function handleVid(container) {
-  const player = container.contentDocument.querySelector('.ans-insertvideo-online').contentDocument;
-  const play = await waitUntilNotNull(() => player.querySelector('.vjs-big-play-button'));
+  const player = container.contentDocument;
+  const play = player.querySelector('.vjs-big-play-button');
 
   return new Promise((resolve) => {
     block('mouseout', window);
@@ -269,8 +278,6 @@ async function handleVid(container) {
         videoEle.removeEventListener('canplaythrough', progresser);
       }
     }
-
-    
   });
 }
 
@@ -303,16 +310,16 @@ function getNextTab() {
  * @param {HTMLIFrameElement} frame 
  */
 async function waitFrameLoad(frame) {
-  const content = await waitUntilNotNull(() => frame.contentDocument);
   return new Promise((res) => {
-    function resolve() {
-      setTimeout(res, 500);
+    function resolve(content) {
+      setTimeout(() => res(content), 500);
     }
     
     const detector = setInterval(() => {
+      const content = frame.contentDocument;
       if (content.readyState === 'complete') {
         clearInterval(detector);
-        resolve();
+        resolve(content);
       }
     }, 100);
   })
