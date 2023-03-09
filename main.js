@@ -289,7 +289,7 @@ async function handleVid(container) {
 function block(eventName, window) {
   window.addEventListener(eventName, (event) => {
       event.stopImmediatePropagation();
-  }, false);
+  }, true);
 }
 
 /**
